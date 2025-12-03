@@ -1,0 +1,499 @@
+﻿from concurrent.futures import thread
+from operator import add
+import subprocess as sb
+from imaplib import Commands  
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton
+from PyQt5.QtCore import QTimer
+import matplotlib
+matplotlib.use('Qt5Agg')
+
+import speech_recognition as sr
+from gtts import gTTS
+import requests
+import shutil
+try:
+    import pywhatkit as kit
+except:
+    pass
+import pyttsx3
+import keyboard as kb
+import threading
+import pygame
+import pyautogui as pg
+import ollama
+import time
+import os
+import cv2
+import torch
+import psutil
+import requests
+from time import sleep
+from selenium.webdriver.common.by import By
+from selenium import webdriver
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import pyttsx3
+import ollama
+import shlex
+import psutil
+import threading
+import sqlite3
+
+stop = False
+
+monitor = False
+limit = 80
+delay = 5
+
+BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
+API_KEY = "OPEN_WEATHERMAP_KEY"
+
+conn = sqlite3.connect("graph_data.db")
+
+cursor = conn.cursor()
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS percentages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    value REAL NOT NULL
+)
+''')
+
+cursor.execute('SELECT value FROM percentages')
+data = cursor.fetchall()
+percentages = [row[0] for row in data]
+print(percentages)
+conn.commit()
+conn.close()
+
+
+def graph():
+    import matplotlib.pyplot as plt
+    import sqlite3
+    import subprocess
+    import os
+
+    conn = sqlite3.connect('graph_data.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM percentages')
+    data = cursor.fetchall()
+    conn.close()
+
+    percentages = [row[0] for row in data]
+    print(percentages)
+
+    plt.figure()
+    plt.plot(percentages)
+    plt.xlabel('Time')
+    plt.ylabel('CPU Usage (%)')
+    plt.title('CPU Usage Over Time')
+    plt.ylim(0, 100)
+    plt.grid(True)
+
+    # Save BEFORE showing
+    plt.savefig("cpu_graph.png")
+    plt.close()
+
+    print("Saved graph as cpu_graph.png")
+
+    # Proper way to open image on Windows
+    os.startfile("cpu_graph.png")
+
+
+
+def add_percentage(value):
+    conn = sqlite3.connect('graph_data.db')
+    cursor = conn.cursor()
+
+    # Example: add a percentage value
+    cursor.execute('INSERT INTO percentages (value) VALUES (?)', (value,))
+
+    conn.commit()
+    conn.close()
+
+    print(f'Added percentage value: {value}')
+
+def cpu_monitor(speak):
+    global monitor
+    global limit
+    global delay
+
+    while True:
+        percent = psutil.cpu_percent()
+
+        if monitor:
+            add_percentage(percent)
+            if percent > limit:
+                txt = f"Warning: cpu usage is exceeding {limit}% ({percent}%)"
+
+                print(txt)
+                say(txt, speak)
+            
+        sleep(delay)
+
+monitor_thread = threading.Thread(target=cpu_monitor, args=[True,])
+monitor_thread.start()
+
+
+def get_news(query, speak):
+    try:
+        url = "https://www.edition.cnn.com/search?q="
+        search = query.lower().replace("cnn", "")
+
+                # Set up Chrome options for headless browsing
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless=new')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-blink-features=AutomationControlled')
+
+        driver = webdriver.Chrome(options=options)
+        driver.get(url+search)
+
+        sleep(7)
+        try:
+
+              cookies = driver.find_element(By.XPATH, "//*[contains(text(), 'Accept All')]")
+              cookies.click()
+        except:
+            print("no cookies")
+        sleep(3)
+        label = driver.find_element(By.XPATH, "//*[contains(text(), 'Stories')]")
+        label.click()
+
+        sleep(2)
+
+        try:
+            title = driver.find_element(By.CLASS_NAME, "container__headline-text")
+            title.click()
+        except:
+            print("no articles found")
+    
+      
+        article_element = driver.find_element(By.CSS_SELECTOR, 'div.article__content')
+
+                     # Extract and print the article text
+        article_text = article_element.text
+        driver.quit()
+
+        return article_text
+            
+
+                # tts = gTTS(text=assistant_reply, lang="en", slow=False)
+                # tts.save("response.mp3")
+                # play_audio("response.mp3")    it 
+
+    except Exception as e:
+        print("⚠️ Error:", e)
+def summarize(text):
+    messages = [
+        {
+            "role": "system",
+            "content": "summarize the contents of this article in a few lines."
+        },
+        {
+            "role": "user",
+            "content": text
+        }
+    ]
+    response = ollama.chat(model="codellama", messages=messages)
+    assistant_reply = response['message']['content']
+    return assistant_reply
+
+
+def get_weather(city):
+    url = BASE_URL + "appid=" + API_KEY + "&q=" + city
+    
+    response = requests.get(url).json()
+    
+    return response
+
+_torch_load = torch.load
+def torch_load_patch(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return _torch_load(*args, **kwargs)
+torch.load = torch_load_patch
+
+
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+#model.to('cuda')
+model.conf = 0.4
+
+
+def get_classes():
+    print("starting")
+    
+    class_list = [] 
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Cannot open camera")
+        exit()
+
+    ret, frame = cap.read()
+    if ret:
+        cv2.imwrite("captured_image.jpg", frame)
+        print("Image saved as captured_image.jpg")
+    else:
+        print("Failed to capture image")
+
+
+    results = model("captured_image.jpg", size=320)
+    detections = results.xyxy[0]
+
+    for *box, conf, cls in detections:
+        if conf < 0.4:
+            continue
+        class_name = model.names[int(cls)]
+        x1, y1, x2, y2 = map(int, box)
+
+        label = f"{model.names[int(cls)]} {conf:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        #if class_name == 'person':
+         #   print("\nHuman detected!")
+          #  break
+        
+        class_list.append(class_name)
+        print(class_name)
+    #annotated_frame = results.render()[0]
+
+    if ret:
+        cv2.imwrite("captured_image.jpg", frame)
+        print("Image saved as captured_image.jpg")
+    else:
+        print("Failed to capture image")
+
+    sb.call("start captured_image.jpg", shell=True)
+    cap.release()
+    cv2.destroyAllWindows()
+    #cv2.imshow("YOLOv5 Detection", annotated_frame)
+    #cv2.waitKey(0)
+    #0cv2.destroyAllWindows()
+    return class_list
+
+
+listen = True
+def animation(filename):
+    import sys
+    from PyQt5.QtWidgets import QApplication, QLabel
+    from PyQt5.QtGui import QMovie
+    from PyQt5.QtCore import Qt
+    app = QApplication(sys.argv)
+
+    # Main window setup
+    window = QWidget()
+    window.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+    window.setAttribute(Qt.WA_TranslucentBackground)
+
+    # Layout for stacking GIF, Entry, and Button
+    layout = QVBoxLayout()
+    layout.setContentsMargins(10, 10, 10, 10)
+    layout.setSpacing(5)
+
+    text_label = QLabel('Voice Assistant')
+    text_label.setStyleSheet("font-size: 18px; color: lightblue;")
+    layout.addWidget(text_label)
+
+    # GIF animation
+    label = QLabel()
+    movie = QMovie(filename)
+    label.setMovie(movie)
+    movie.start()
+    #layout.addWidget(label)
+
+    # Entry bar (under GIF)
+    entry = QLineEdit()
+    entry.setPlaceholderText("Type your message...")
+    layout.addWidget(entry)
+
+    # Submit button
+    button = QPushButton("Submit")
+    layout.addWidget(button)
+    
+    speak = QPushButton("Voice")
+    layout.addWidget(speak)
+        
+    def on_submit():
+        text = entry.text()
+        out_thread = threading.Thread(target=get_output, args=(text,)).start()
+        entry.clear()
+    def voice():
+        import speech_recognition as sr
+
+        r = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("Say something!")
+            say("listening", speak)
+            audio = r.listen(source)
+
+        try:
+            text = r.recognize_google(audio)
+            print("You said: " + text)
+            say("got it", speak)
+            out_thread = threading.Thread(target=get_output, args=(text,)).start()
+        except sr.UnknownValueError:
+            print("Sphinx could not understand audio")
+        except sr.RequestError as e:
+            print("Sphinx error; {0}".format(e))
+
+    def start_voice():
+        threading.Thread(target=voice).start()
+    button.clicked.connect(on_submit)
+    speak.clicked.connect(start_voice)
+
+    # Apply layout to window
+    window.setLayout(layout)
+
+    # Resize window to fit content
+    window.adjustSize()
+
+    # Move window to bottom right
+    screen = app.primaryScreen().availableGeometry()
+    x = 30
+    y = screen.height() - window.height() - 60
+    window.move(x, y)
+
+    window.show()
+    sys.exit(app.exec_())
+
+threading.Thread(target=animation, args=("resize.gif",), daemon=True).start()
+
+def play_audio(file):
+    pygame.init()
+    pygame.mixer.init()
+    pygame.mixer.music.load(file)
+    pygame.mixer.music.play()
+    while pygame.mixer.music.get_busy():
+        time.sleep(0.1)
+    pygame.mixer.quit()
+
+def say(text, shouldSpeak):
+    engine = pyttsx3.init()
+    
+    # set speech rate
+    engine.setProperty('rate', 150)
+
+    # set volume
+    engine.setProperty('volume', 1.0)
+
+    # voice
+    voices = engine.getProperty('voices')
+    engine.setProperty('voice', voices[1].id)  # Use voices[1] for female, if available
+
+    engine.say(text)
+    engine.runAndWait()
+
+def get_output(text):
+    global stop
+    global monitor
+    global limit
+    global delay
+
+    # play_audio("listening.mp3")
+    try:
+        # audio = recognizer.listen(source)
+        # user_input = recognizer.recognize_google(audio)
+        speak = True
+
+        user_input = text
+
+        if "-no-speak" in user_input.lower():
+                    user_input = user_input.lower().replace("-no-speak", "")
+                    speak = False
+
+        messages.append({"role": "user", "content": user_input})
+
+        words = user_input.lower().split()
+        command = words[0] if words else ""
+
+        # commmands
+        if command.lower() == "cnn":
+            content = get_news(" ".join(user_input.split()[1::]), False)
+
+            summary = summarize(content)
+            say(summary, True)
+        elif command.lower() == "stop":
+            stop = True
+        elif command.lower() == "wl":
+            stop = False
+            articles = []
+            while True:
+                content = get_news(" ".join(user_input.split()[1::]), False)
+                if content in articles:
+                    print("No new articles found. Stopping.")
+                else:
+                    articles.append(content)
+                    say(summarize(content), True)
+                if stop:
+                    print("stopped")
+                    break
+                time.sleep(5)
+        elif command.lower() == "monitor":
+            try:
+                limit = int(user_input.split()[1])
+                delay = int(user_input.split()[2])
+                monitor = True
+            except Exception as e:
+                print(e)
+                say("Invalid input", speak)
+        elif command.lower() == "cpu-stop":
+            monitor = False
+        elif command.lower() == "graph":
+            graph()
+        elif command.lower() == "db-delete":
+            conn = sqlite3.connect('graph_data.db')
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM percentages')
+            conn.commit()
+            conn.close()
+            print("Deleted all entries from the database.")
+
+
+        else:
+            commands = ["search", "youtube", "open", "weather", "camera", "cnn", "move-files", "stream", "wm", "stop", "monitor", "graph", "cpu-stop", "db-delete"]
+            
+            if command not in commands:
+
+                response = ollama.chat(model="codellama", messages=messages)
+                assistant_reply = response['message']['content']
+                print("Assistant:", assistant_reply)             
+                messages.append({"role": "assistant", "content": assistant_reply})
+
+                if speak:
+                    say(assistant_reply, speak)
+            
+
+            # tts = gTTS(text=assistant_reply, lang="en", slow=False)
+            # tts.save("response.mp3")
+            # play_audio("response.mp3")    it 
+
+    except Exception as e:
+        print("⚠️ Error:", e)
+
+
+  
+
+recognizer = sr.Recognizer()
+
+messages = [
+    {
+        "role": "system",
+        "content": "You are a helpful voice assistant named sirial. Keep your answers short and clear."
+    }
+]
+
+
+
+
+#tts = gTTS(text="Sorry, I didn’t understand that", lang="en", slow=False)
+#tts.save("sorry.mp3")
+
+#tts = gTTS(text="Listening", lang="en", slow=False)
+#tts.save("listening.mp3")
+import time
+
+#"""
+while True:
+    time.sleep(1)
+ #       """
