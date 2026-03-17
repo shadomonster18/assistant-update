@@ -1,4 +1,8 @@
-﻿import os
+#import subprocess
+#subprocess.run("pip uninstall duckduckgo_search")
+#subprocess.run("pip install ddgs")
+
+import os
 import sys
 import time
 import shlex
@@ -20,6 +24,7 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QMovie
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from ddgs import DDGS
 
 import speech_recognition as sr
 
@@ -30,7 +35,6 @@ except:
 
 import matplotlib
 matplotlib.use('Qt5Agg')
-
 stop = False
 monitor = False
 limit = 80
@@ -111,6 +115,12 @@ def summarize(text):
 def get_weather(city):
     return requests.get(BASE_URL + "appid=" + API_KEY + "&q=" + city).json()
 
+def ddgs_search(query, max_results=5):
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=max_results)
+        print(" ".join([r['body'] for r in results]))
+        return " ".join([r['body'] for r in results])
+
 def graph():
     import matplotlib.pyplot as plt
     conn = sqlite3.connect('graph_data.db')
@@ -166,6 +176,12 @@ def say(text, shouldSpeak):
     engine.setProperty('voice', voices[1].id)
     engine.say(text)
     engine.runAndWait()
+    
+def format_context(results):
+    context = ""
+    for i, r in enumerate(results):
+        context += f"{i}. {r['title']}\n{r['snippet']}\n{r['link']}\n\n"
+        return context
 
 def get_output(text):
     global stop, monitor, limit, delay
@@ -182,7 +198,7 @@ def get_output(text):
         built_in_commands = [
             "search","youtube","open","weather","camera","cnn",
             "move-files","stream","wm","stop","monitor","graph",
-            "cpu-stop","db-delete","wl"
+            "cpu-stop","db-delete","wl", "web-search"
         ]
 
         if command in built_in_commands:
@@ -212,6 +228,9 @@ def get_output(text):
                 monitor = False
             elif command == "graph":
                 graph()
+            elif command == "web-search":
+                results = ddgs_search(" ".join(words[1:]))
+                say(format_context(results), speak)
             elif command == "weather":
                 try:
                     weather = get_weather(" ".join(words[1:]))
@@ -232,7 +251,7 @@ def get_output(text):
         else:
             local_messages = messages.copy()
             local_messages.append({"role":"user","content":user_input})
-            response = ollama.chat(model="codellama", messages=local_messages)
+            response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
             assistant_reply = response['message']['content']
             print("Assistant:", assistant_reply)
             messages.append({"role":"assistant","content":assistant_reply})
