@@ -1,6 +1,10 @@
-#import subprocess
-#subprocess.run("pip uninstall duckduckgo_search")
-#subprocess.run("pip install ddgs")
+import subprocess
+import sys
+print(sys.executable)
+#subprocess.run("pip uninstall psutil")
+#subprocess.run("pip install psutil")
+#subprocess.run("pip uninstall opencv-python")
+#subprocess.run("pip install opencv-python")
 
 import os
 import sys
@@ -11,8 +15,9 @@ import subprocess
 import sqlite3
 from time import sleep
 from concurrent.futures import thread
-
+import json
 import psutil
+import shutil
 import torch
 import cv2
 import pygame
@@ -25,7 +30,7 @@ from PyQt5.QtGui import QMovie
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from ddgs import DDGS
-
+import requests
 import speech_recognition as sr
 
 try:
@@ -51,6 +56,11 @@ percentages = [row[0] for row in cursor.fetchall()]
 conn.commit()
 conn.close()
 
+search_folder = ""
+move_folder = ""
+file_type = ""
+
+'''
 _torch_load = torch.load
 def torch_load_patch(*args, **kwargs):
     kwargs["weights_only"] = False
@@ -59,6 +69,7 @@ torch.load = torch_load_patch
 
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 model.conf = 0.4
+'''
 recognizer = sr.Recognizer()
 
 def add_percentage(value):
@@ -109,7 +120,8 @@ def get_news(query, speak):
         print("⚠️ Error:", e)
 
 def summarize(text):
-    response = ollama.chat(model="codellama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
+    response = ollama.chat(model="tinyllama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
+
     return response['message']['content']
 
 def get_weather(city):
@@ -118,8 +130,10 @@ def get_weather(city):
 def ddgs_search(query, max_results=5):
     with DDGS() as ddgs:
         results = ddgs.text(query, max_results=max_results)
-        print(" ".join([r['body'] for r in results]))
-        return " ".join([r['body'] for r in results])
+        # Optional: print titles for debugging
+        for r in results:
+            print(r.get('title'), r.get('body'))
+        return results
 
 def graph():
     import matplotlib.pyplot as plt
@@ -139,7 +153,7 @@ def graph():
     plt.close()
     os.startfile("cpu_graph.png")
     print("Saved graph as cpu_graph.png")
-
+'''
 def get_classes():
     class_list = []
     cap = cv2.VideoCapture(0)
@@ -159,6 +173,7 @@ def get_classes():
     cap.release()
     cv2.destroyAllWindows()
     return class_list
+'''
 
 def play_audio(file):
     pygame.init()
@@ -180,11 +195,14 @@ def say(text, shouldSpeak):
 def format_context(results):
     context = ""
     for i, r in enumerate(results):
-        context += f"{i}. {r['title']}\n{r['snippet']}\n{r['link']}\n\n"
-        return context
+        title = r.get('title', '')
+        snippet = r.get('body', '')  # DDGS uses 'body', not 'snippet'
+        link = r.get('link', '')
+        context += f"{i}. {title}\n{snippet}\n{link}\n\n"
+    return context
 
 def get_output(text):
-    global stop, monitor, limit, delay
+    global stop, monitor, limit, delay, move_folder, search_folder, file_type
     try:
         speak = True
         user_input = text
@@ -229,8 +247,23 @@ def get_output(text):
             elif command == "graph":
                 graph()
             elif command == "web-search":
+
                 results = ddgs_search(" ".join(words[1:]))
-                say(format_context(results), speak)
+                #search_results_text = "\n\n\n\n\n\n".join([f"{r.get('title')} - {r.get('link')}" for r in results])                
+                response = ollama.chat(
+                    model="tinyllama",
+                    messages=[
+                        {"role": "system", "content": f"You are a helpful assistant. keep your answers short and clear. answer the question based on the following search results: {results}"},
+                        {"role": "user", "content": " ".join(words[1:])}
+                    ],
+                    options={"temperature": 0.1}
+                )
+                assistant_reply = response['message']['content']
+                print(assistant_reply)
+                say(assistant_reply, speak)
+             
+
+
             elif command == "weather":
                 try:
                     weather = get_weather(" ".join(words[1:]))
@@ -248,6 +281,19 @@ def get_output(text):
                 conn.commit()
                 conn.close()
                 print("Deleted all entries from the database.")
+            elif command == "move-files":
+                try:
+                    search_folder = words[1]  # "C:\Users\User\Downloads"
+                    move_folder = words[2]    # "C:\Users\User\Pictures"
+                    file_type = words[3]
+
+                    # Go through each file in the search directory and check if it has the target type
+                    for file in os.listdir(search_folder):
+                        if file.endswith(file_type):
+                            shutil.move(os.path.join(search_folder, file), os.path.join(move_folder, file))
+                            print(f"Moved {file} to {move_folder}.\n")
+                except Exception as e:
+                    print(e)
         else:
             local_messages = messages.copy()
             local_messages.append({"role":"user","content":user_input})
@@ -260,7 +306,7 @@ def get_output(text):
     except Exception as e:
         print("⚠️ Error:", e)
 
-def animation(filename):
+def gui():
     import sys
     app = QApplication(sys.argv)
     window = QWidget()
@@ -273,9 +319,6 @@ def animation(filename):
     text_label.setStyleSheet("font-size: 18px; color: lightblue;")
     layout.addWidget(text_label)
     label = QLabel()
-    movie = QMovie(filename)
-    label.setMovie(movie)
-    movie.start()
     entry = QLineEdit()
     entry.setPlaceholderText("Type your message...")
     layout.addWidget(entry)
@@ -309,7 +352,7 @@ def animation(filename):
     window.show()
     sys.exit(app.exec_())
 
-threading.Thread(target=animation, args=("resize.gif",), daemon=True).start()
-threading.Thread(target=cpu_monitor, args=[True], daemon=True).start()
+threading.Thread(target=gui, daemon=False).start()
+threading.Thread(target=cpu_monitor, args=[True], daemon=False).start()
 
 while True: sleep(1)
