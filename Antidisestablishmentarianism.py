@@ -39,7 +39,7 @@ except:
     pass
 
 import matplotlib
-matplotlib.use('Qt5Agg')
+matplotlib.use('Agg')
 stop = False
 monitor = False
 limit = 80
@@ -216,13 +216,46 @@ def get_output(text):
         built_in_commands = [
             "search","youtube","open","weather","camera","cnn",
             "move-files","stream","wm","stop","monitor","graph",
-            "cpu-stop","db-delete","wl", "web-search"
+            "cpu-stop","db-delete","wl", "web-search", "wiki"
         ]
 
         if command in built_in_commands:
             if command == "cnn":
                 content = get_news(" ".join(words[1:]), False)
                 say(summarize(content), True)
+            elif command == "wiki":
+                try:
+                    title = " ".join(words[1:])
+                    url = "https://en.wikipedia.org/w/api.php"
+                    headers = {"User-Agent": "Sirial/1.0 (your_email@example.com)"}
+
+                    params = {
+                        "action": "query",
+                        "list": "search",
+                        "srsearch": title,
+                        "format": "json"
+                    }
+
+                    res = requests.get(url, headers=headers, params=params).json()
+    
+                    if res["query"]["search"]:
+                        title = res["query"]["search"][0]["title"]  # best match
+
+                    headers = {
+                        "User-Agent": "SirialAssistant/1.0 (idanbbarkay@gmail.com)"
+                    }
+
+                    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+
+                    res = requests.get(url, headers=headers)
+                    summary = res.json()["extract"]
+
+                    print(summary)
+                    say(summary, speak)
+
+                except:
+                    print("No articles found\n")
+                    say("No articles found", speak)
             elif command == "stop":
                 stop = True
             elif command == "wl":
@@ -352,7 +385,10 @@ def gui():
     window.show()
     sys.exit(app.exec_())
 
-threading.Thread(target=gui, daemon=False).start()
-threading.Thread(target=cpu_monitor, args=[True], daemon=False).start()
+#threading.Thread(target=gui, daemon=True).start()
+threading.Thread(target=cpu_monitor, args=[True], daemon=True).start()
 
-while True: sleep(1)
+if __name__ == "__main__":
+    gui()
+
+#while True: sleep(1)
