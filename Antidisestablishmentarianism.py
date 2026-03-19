@@ -240,6 +240,8 @@ def get_output(text):
     
                     if res["query"]["search"]:
                         title = res["query"]["search"][0]["title"]  # best match
+                    for item in res["query"]["search"]:
+                        print(item["title"])
 
                     headers = {
                         "User-Agent": "SirialAssistant/1.0 (idanbbarkay@gmail.com)"
@@ -251,10 +253,26 @@ def get_output(text):
                     summary = res.json()["extract"]
 
                     print(summary)
-                    say(summary, speak)
+                    #say(summary, speak)
+                    response = ollama.chat(
+                    model="tinyllama",
+                    messages=[
+                        {"role": "system", "content": 
+                        "Answer the question using ONLY the summary.\n"
+                        "If the answer is not clearly stated in the summary, output exactly this word:\n"
+                        "NO\n"
+                        "Do not output anything else under any condition."
+                        },
+                        {"role": "user", "content": f"Question: {' '.join(words[1:])}\n\nSummary:\{summary}"}
+                    ],
+                    options={"temperature": 0.1}
+                )
+                    assistant_reply = response['message']['content']
+                    print(assistant_reply)
+                    say(assistant_reply, speak)
 
-                except:
-                    print("No articles found\n")
+                except Exception as e:
+                    print(f"No articles found({e})\n")
                     say("No articles found", speak)
             elif command == "stop":
                 stop = True
