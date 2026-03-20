@@ -39,6 +39,8 @@ except:
     pass
 
 import matplotlib
+
+import difflib
 matplotlib.use('Agg')
 stop = False
 monitor = False
@@ -115,6 +117,7 @@ def get_news(query, speak):
         except: pass
         article_text = driver.find_element(By.CSS_SELECTOR, 'div.article__content').text
         driver.quit()
+        print(article_text)
         return article_text
     except Exception as e:
         print("⚠️ Error:", e)
@@ -128,12 +131,15 @@ def get_weather(city):
     return requests.get(BASE_URL + "appid=" + API_KEY + "&q=" + city).json()
 
 def ddgs_search(query, max_results=5):
+    results_list = []
     with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=max_results)
-        # Optional: print titles for debugging
-        for r in results:
-            print(r.get('title'), r.get('body'))
-        return results
+        for r in ddgs.text(f"!news {query}", max_results=max_results): # get only news
+            results_list.append({
+                'title': r.get('title', ''),
+                'snippet': r.get('body', ''),
+                'link': r.get('link', '')
+            })
+    return results_list
 
 def graph():
     import matplotlib.pyplot as plt
@@ -207,17 +213,22 @@ def get_output(text):
         speak = True
         user_input = text
         if "-no-speak" in user_input.lower():
-            user_input = user_input.lower().replace("-no-speak", "")
+            user_input = user_input.lower().replace("-no-speak", "") 
             speak = False
 
         words = user_input.lower().split()
         command = words[0] if words else ""
-
         built_in_commands = [
             "search","youtube","open","weather","camera","cnn",
             "move-files","stream","wm","stop","monitor","graph",
-            "cpu-stop","db-delete","wl", "web-search", "wiki"
+            "cpu-stop","db-delete","wl", "web-search", "wiki, system-stats"
         ]
+
+
+        closest_matches = difflib.get_close_matches(command, built_in_commands, n=1, cutoff=0.6) # tolerate typos
+        if closest_matches:
+            print(f"Typo... ({command})\n closest match: {closest_matches[0]}")
+            command = closest_matches[0] # get closest match
 
         if command in built_in_commands:
             if command == "cnn":
@@ -253,24 +264,7 @@ def get_output(text):
                     summary = res.json()["extract"]
 
                     print(summary)
-                    #say(summary, speak)
-                    response = ollama.chat(
-                    model="tinyllama",
-                    messages=[
-                        {"role": "system", "content": 
-                        "Answer the question using ONLY the summary.\n"
-                        "If the answer is not clearly stated in the summary, output exactly this word:\n"
-                        "NO\n"
-                        "Do not output anything else under any condition."
-                        },
-                        {"role": "user", "content": f"Question: {' '.join(words[1:])}\n\nSummary:\{summary}"}
-                    ],
-                    options={"temperature": 0.1}
-                )
-                    assistant_reply = response['message']['content']
-                    print(assistant_reply)
-                    say(assistant_reply, speak)
-
+                    say(summary, speak)
                 except Exception as e:
                     print(f"No articles found({e})\n")
                     say("No articles found", speak)
@@ -300,9 +294,14 @@ def get_output(text):
             elif command == "web-search":
 
                 results = ddgs_search(" ".join(words[1:]))
+                for r in results:
+                    print("title: " + r['title'])
+                    print("snippet: " + r['snippet'])
+                    print("link: " + r['link'], "\n")
                 #search_results_text = "\n\n\n\n\n\n".join([f"{r.get('title')} - {r.get('link')}" for r in results])                
+                '''
                 response = ollama.chat(
-                    model="tinyllama",
+                    model="codellama",
                     messages=[
                         {"role": "system", "content": f"You are a helpful assistant. keep your answers short and clear. answer the question based on the following search results: {results}"},
                         {"role": "user", "content": " ".join(words[1:])}
@@ -310,6 +309,7 @@ def get_output(text):
                     options={"temperature": 0.1}
                 )
                 assistant_reply = response['message']['content']
+                '''
                 print(assistant_reply)
                 say(assistant_reply, speak)
              
@@ -331,21 +331,25 @@ def get_output(text):
                 cursor.execute('DELETE FROM percentages')
                 conn.commit()
                 conn.close()
-                print("Deleted all entries from the database.")
+                print("Deleted all data from the database.")
             elif command == "move-files":
                 try:
-                    search_folder = words[1]  # "C:\Users\User\Downloads"
-                    move_folder = words[2]    # "C:\Users\User\Pictures"
+                    search_folder = words[1]  # 
+                    move_folder = words[2]    
                     file_type = words[3]
+                    files = []
+
 
                     # Go through each file in the search directory and check if it has the target type
                     for file in os.listdir(search_folder):
                         if file.endswith(file_type):
                             shutil.move(os.path.join(search_folder, file), os.path.join(move_folder, file))
                             print(f"Moved {file} to {move_folder}.\n")
+                            files.append(file)
                 except Exception as e:
                     print(e)
         else:
+            say("thinking")
             local_messages = messages.copy()
             local_messages.append({"role":"user","content":user_input})
             response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
@@ -403,10 +407,8 @@ def gui():
     window.show()
     sys.exit(app.exec_())
 
-#threading.Thread(target=gui, daemon=True).start()
 threading.Thread(target=cpu_monitor, args=[True], daemon=True).start()
 
 if __name__ == "__main__":
     gui()
 
-#while True: sleep(1)
