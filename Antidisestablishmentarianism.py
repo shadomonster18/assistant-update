@@ -32,6 +32,7 @@ from selenium.webdriver.common.by import By
 from ddgs import DDGS
 import requests
 import speech_recognition as sr
+import wikipedia
 
 try:
     import pywhatkit as kit
@@ -61,6 +62,8 @@ conn.close()
 search_folder = ""
 move_folder = ""
 file_type = ""
+
+engine = pyttsx3.init()
 
 '''
 _torch_load = torch.load
@@ -120,10 +123,10 @@ def get_news(query, speak):
         print(article_text)
         return article_text
     except Exception as e:
-        print("Error:", e)
+        print("⚠️ Error:", e)
 
 def summarize(text):
-    response = ollama.chat(model="tinyllama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
+    response = ollama.chat(model="codellama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
 
     return response['message']['content']
 
@@ -140,6 +143,22 @@ def ddgs_search(query, max_results=5):
                 'link': r.get('link', '')
             })
     return results_list
+
+def wiki(speak, words, threshold=700):
+    try:
+        title = words
+        summary = wikipedia.summary(title)
+        print(summary)
+        if len(summary) > threshold:
+            print("length: " + len(summary))
+            print("summarizing")
+            summary = summarize(summary) # shorten the summary if it is too long
+            print(summary)
+            say(summary, speak)
+    except Exception as e:
+        print(f"No articles found({e})\n")
+        say("No articles found", speak)
+
 
 def graph():
     import matplotlib.pyplot as plt
@@ -190,13 +209,19 @@ def play_audio(file):
     pygame.mixer.quit()
 
 def say(text, shouldSpeak):
-    engine = pyttsx3.init()
-    engine.setProperty('rate', 150)
-    engine.setProperty('volume', 1.0)
-    voices = engine.getProperty('voices')
-    engine.setProperty('voice', voices[1].id)
-    engine.say(text)
-    engine.runAndWait()
+    def speech_thread():
+        engine.setProperty('rate', 150)
+        engine.setProperty('volume', 1.0)
+        voices = engine.getProperty('voices')
+        engine.setProperty('voice', voices[1].id)
+        engine.say(text)
+        engine.runAndWait()
+
+    if shouldSpeak:
+        threading.Thread(target=speech_thread).start()
+
+def stop_speech():
+    engine.stop()
     
 def format_context(results):
     context = ""
@@ -206,6 +231,13 @@ def format_context(results):
         link = r.get('link', '')
         context += f"{i}. {title}\n{snippet}\n{link}\n\n"
     return context
+
+def valid_num(num):
+    try:
+        num_integer = int(num)
+        return num_integer
+    except:
+        return None
 
 def get_output(text):
     global stop, monitor, limit, delay, move_folder, search_folder, file_type
@@ -221,7 +253,7 @@ def get_output(text):
         built_in_commands = [
             "search","youtube","open","weather","camera","cnn",
             "move-files","stream","wm","stop","monitor","graph",
-            "cpu-stop","db-delete","wl", "web-search", "wiki, system-stats"
+            "cpu-stop","db-delete","wl", "web-search", "wiki", "system-stats", "stop"
         ]
 
 
@@ -235,39 +267,14 @@ def get_output(text):
                 content = get_news(" ".join(words[1:]), False)
                 say(summarize(content), True)
             elif command == "wiki":
-                try:
-                    title = " ".join(words[1:])
-                    url = "https://en.wikipedia.org/w/api.php"
-                    headers = {"User-Agent": "Sirial/1.0 (your_email@example.com)"}
-
-                    params = {
-                        "action": "query",
-                        "list": "search",
-                        "srsearch": title,
-                        "format": "json"
-                    }
-
-                    res = requests.get(url, headers=headers, params=params).json()
-    
-                    if res["query"]["search"]:
-                        title = res["query"]["search"][0]["title"]  # best match
-                    for item in res["query"]["search"]:
-                        print(item["title"])
-
-                    headers = {
-                        "User-Agent": "SirialAssistant/1.0 (idanbbarkay@gmail.com)"
-                    }
-
-                    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
-
-                    res = requests.get(url, headers=headers)
-                    summary = res.json()["extract"]
-
-                    print(summary)
-                    say(summary, speak)
-                except Exception as e:
-                    print(f"No articles found({e})\n")
-                    say("No articles found", speak)
+                threshold_in_command = valid_num(words[1])
+                search = " ".join(words[1:])
+                print(search)
+                print(threshold_in_command)
+                if (threshold_in_command is not None):
+                    wiki(speak, " ".join(words[2:]), threshold_in_command)
+                else:
+                    wiki(speak, " ".join(words[1:]))
             elif command == "stop":
                 stop = True
             elif command == "wl":
@@ -287,34 +294,13 @@ def get_output(text):
                     monitor = True
                 except:
                     say("Invalid input", speak)
+            elif command == "stop":
+                stop_speech()
             elif command == "cpu-stop":
                 monitor = False
             elif command == "graph":
                 graph()
-            elif command == "web-search":
-
-                results = ddgs_search(" ".join(words[1:]))
-                for r in results:
-                    print("title: " + r['title'])
-                    print("snippet: " + r['snippet'])
-                    print("link: " + r['link'], "\n")
-                #search_results_text = "\n\n\n\n\n\n".join([f"{r.get('title')} - {r.get('link')}" for r in results])                
-                '''
-                response = ollama.chat(
-                    model="codellama",
-                    messages=[
-                        {"role": "system", "content": f"You are a helpful assistant. keep your answers short and clear. answer the question based on the following search results: {results}"},
-                        {"role": "user", "content": " ".join(words[1:])}
-                    ],
-                    options={"temperature": 0.1}
-                )
-                assistant_reply = response['message']['content']
-                '''
-                print(assistant_reply)
-                say(assistant_reply, speak)
-             
-
-
+            
             elif command == "weather":
                 try:
                     weather = get_weather(" ".join(words[1:]))
@@ -346,20 +332,32 @@ def get_output(text):
                             shutil.move(os.path.join(search_folder, file), os.path.join(move_folder, file))
                             print(f"Moved {file} to {move_folder}.\n")
                             files.append(file)
+                            print(f"Moved {len(files)} files from {search_folder} to {move_folder}")
                 except Exception as e:
                     print(e)
-        else:
-            say("thinking")
-            local_messages = messages.copy()
-            local_messages.append({"role":"user","content":user_input})
-            response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
-            assistant_reply = response['message']['content']
-            print("Assistant:", assistant_reply)
-            messages.append({"role":"assistant","content":assistant_reply})
-            if speak: say(assistant_reply, speak)
+            elif command == "system-stats":
+                cpu = psutil.cpu_percent(interval=1)
+                memory = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+                available_memory = round(psutil.virtual_memory().available / (1024 ** 3), 1)
+                disk = round(psutil.disk_usage('/').total / (1024 ** 3), 1)
+                used = round(psutil.disk_usage('/').used / (1024 ** 3), 1)
+
+                message = f"CPU Usage: {cpu}%, available RAM: {available_memory}GB, total RAM: {memory}GB, total SSD: {disk}GB, SSD used: {used}GB"
+
+                print(message)
+                say(message, speak)
+            else:
+                say("thinking", speak)
+                local_messages = messages.copy()
+                local_messages.append({"role":"user","content":user_input})
+                response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
+                assistant_reply = response['message']['content']
+                print("Assistant:", assistant_reply)
+                messages.append({"role":"assistant","content":assistant_reply})
+                if speak: say(assistant_reply, speak)
 
     except Exception as e:
-        print("Error:", e)
+        print("⚠️ Error:", e)
 
 def gui():
     import sys
