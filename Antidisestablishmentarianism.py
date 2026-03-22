@@ -123,15 +123,36 @@ def get_news(query, speak):
         print(article_text)
         return article_text
     except Exception as e:
-        print("⚠️ Error:", e)
+        print("Error:", e)
 
 def summarize(text):
     response = ollama.chat(model="codellama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
 
     return response['message']['content']
 
-def get_weather(city):
-    return requests.get(BASE_URL + "appid=" + API_KEY + "&q=" + city).json()
+def get_weather(speak, words):
+    response = requests.get(BASE_URL + "appid=" + API_KEY + "&q=" + words[1:]).json()
+    try:
+        temp = int()
+        temp = int(response["main"]["temp"]-273)
+        feels_like = int(response["main"]["feels_like"]-273)
+        humidity = response["main"]["humidity"]
+        description = response["weather"][0]["description"]
+    except Exception as e:
+        say("Error while retrieving weather data", speak)
+        print(e)
+    '''
+    try:
+                    weather = get_weather(" ".join(words[1:]))
+                    temp = int(weather["main"]["temp"]-273)
+                    feels_like = int(weather["main"]["feels_like"]-273)
+                    humidity = weather["main"]["humidity"]
+                    description = weather["weather"][0]["description"]
+                    say(f"The current weather in {' '.join(words[1:])} is {temp}°C, feels like {feels_like}°C, humidity {humidity}%, and {description}.", speak)
+                except:
+                    say("Error retrieving weather data.", speak)
+                    '''
+    
 
 def ddgs_search(query, max_results=5):
     results_list = []
@@ -144,23 +165,36 @@ def ddgs_search(query, max_results=5):
             })
     return results_list
 
-def wiki(speak, words, threshold=700):
+def wiki(speak, words, threshold=1000):
     try:
         title = words
         summary = wikipedia.summary(title)
         print(summary)
         if len(summary) > threshold:
-            print("length: " + len(summary))
-            print("summarizing")
+            print("length: " + str(len(summary)))
             summary = summarize(summary) # shorten the summary if it is too long
             print(summary)
+            say(summary, speak)
+        else:
             say(summary, speak)
     except Exception as e:
         print(f"No articles found({e})\n")
         say("No articles found", speak)
 
+def stats(speak, words):
+    cpu = psutil.cpu_percent(interval=1)
+    memory = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    available_memory = round(psutil.virtual_memory().available / (1024 ** 3), 1)
+    disk = round(psutil.disk_usage('/').total / (1024 ** 3), 1)
+    used = round(psutil.disk_usage('/').used / (1024 ** 3), 1)
 
-def graph():
+    message = f"CPU Usage: {cpu}%, available RAM: {available_memory}GB, total RAM: {memory}GB, total SSD: {disk}GB, SSD used: {used}GB"
+
+    print(message)
+    say(message, speak)
+
+
+def graph(*args):
     import matplotlib.pyplot as plt
     conn = sqlite3.connect('graph_data.db')
     cursor = conn.cursor()
@@ -178,6 +212,24 @@ def graph():
     plt.close()
     os.startfile("cpu_graph.png")
     print("Saved graph as cpu_graph.png")
+
+def move_files(words):
+    try:
+        search_folder = words[1]  # 
+        move_folder = words[2]    
+        file_type = words[3]
+        files = []
+
+
+                    # Go through each file in the search directory and check if it has the target type
+        for file in os.listdir(search_folder):
+            if file.endswith(file_type):
+                shutil.move(os.path.join(search_folder, file), os.path.join(move_folder, file))
+                print(f"Moved {file} to {move_folder}.\n")
+                files.append(file)
+                print(f"Moved {len(files)} files from {search_folder} to {move_folder}")
+    except Exception as e:
+        print(e)
 '''
 def get_classes():
     class_list = []
@@ -208,18 +260,16 @@ def play_audio(file):
     while pygame.mixer.music.get_busy(): sleep(0.1)
     pygame.mixer.quit()
 
-def say(text, shouldSpeak):
-    def speech_thread():
+def say(text, shouldSpeak=True):
+    print("preparing")
+    if shouldSpeak:
+        print("speaking now")
         engine.setProperty('rate', 150)
         engine.setProperty('volume', 1.0)
         voices = engine.getProperty('voices')
         engine.setProperty('voice', voices[1].id)
         engine.say(text)
         engine.runAndWait()
-
-    if shouldSpeak:
-        threading.Thread(target=speech_thread).start()
-
 def stop_speech():
     engine.stop()
     
@@ -255,6 +305,10 @@ def get_output(text):
             "move-files","stream","wm","stop","monitor","graph",
             "cpu-stop","db-delete","wl", "web-search", "wiki", "system-stats", "stop"
         ]
+        COMMANDS = {
+            ""
+            }
+            
 
 
         closest_matches = difflib.get_close_matches(command, built_in_commands, n=1, cutoff=0.6) # tolerate typos
@@ -265,14 +319,15 @@ def get_output(text):
         if command in built_in_commands:
             if command == "cnn":
                 content = get_news(" ".join(words[1:]), False)
-                say(summarize(content), True)
+                say(summarize(content), speak)
             elif command == "wiki":
                 threshold_in_command = valid_num(words[1])
                 search = " ".join(words[1:])
                 print(search)
                 print(threshold_in_command)
+                print(speak)
                 if (threshold_in_command is not None):
-                    wiki(speak, " ".join(words[2:]), threshold_in_command)
+                    wiki(speak, " ".join(words[2:]), str(threshold_in_command))
                 else:
                     wiki(speak, " ".join(words[1:]))
             elif command == "stop":
@@ -319,33 +374,9 @@ def get_output(text):
                 conn.close()
                 print("Deleted all data from the database.")
             elif command == "move-files":
-                try:
-                    search_folder = words[1]  # 
-                    move_folder = words[2]    
-                    file_type = words[3]
-                    files = []
-
-
-                    # Go through each file in the search directory and check if it has the target type
-                    for file in os.listdir(search_folder):
-                        if file.endswith(file_type):
-                            shutil.move(os.path.join(search_folder, file), os.path.join(move_folder, file))
-                            print(f"Moved {file} to {move_folder}.\n")
-                            files.append(file)
-                            print(f"Moved {len(files)} files from {search_folder} to {move_folder}")
-                except Exception as e:
-                    print(e)
+                move_files(words)
             elif command == "system-stats":
-                cpu = psutil.cpu_percent(interval=1)
-                memory = round(psutil.virtual_memory().total / (1024 ** 3), 1)
-                available_memory = round(psutil.virtual_memory().available / (1024 ** 3), 1)
-                disk = round(psutil.disk_usage('/').total / (1024 ** 3), 1)
-                used = round(psutil.disk_usage('/').used / (1024 ** 3), 1)
-
-                message = f"CPU Usage: {cpu}%, available RAM: {available_memory}GB, total RAM: {memory}GB, total SSD: {disk}GB, SSD used: {used}GB"
-
-                print(message)
-                say(message, speak)
+                stats(speak, words)
             else:
                 say("thinking", speak)
                 local_messages = messages.copy()
@@ -357,7 +388,7 @@ def get_output(text):
                 if speak: say(assistant_reply, speak)
 
     except Exception as e:
-        print("⚠️ Error:", e)
+        print(" Error:", e)
 
 def gui():
     import sys
