@@ -120,7 +120,7 @@ def get_news(query, speak):
         print(article_text)
         return article_text
     except Exception as e:
-        print("⚠️ Error:", e)
+        print("Error:", e)
 
 def summarize(text):
     response = ollama.chat(model="tinyllama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
@@ -359,7 +359,7 @@ def get_output(text):
             if speak: say(assistant_reply, speak)
 
     except Exception as e:
-        print("⚠️ Error:", e)
+        print("Error:", e)
 
 def gui():
     import sys
