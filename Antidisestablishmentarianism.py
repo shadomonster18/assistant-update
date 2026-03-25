@@ -33,11 +33,12 @@ from ddgs import DDGS
 import requests
 import speech_recognition as sr
 import wikipedia
+import edge_tts
+import asyncio
+import pygame
+import time
+import pywhatkit as kit
 
-try:
-    import pywhatkit as kit
-except:
-    pass
 
 import matplotlib
 
@@ -49,7 +50,7 @@ limit = 80
 delay = 5
 BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
 API_KEY = "OPEN_WEATHERMAP_KEY"
-messages = [{"role": "system", "content": "You are a helpful voice assistant named sirial. Keep your answers short and clear."}]
+messages = [{"role": "system", "content": "You are an assistant named Jarvis. Keep your answers short and clear. refer to the user as sir."}]
 
 conn = sqlite3.connect("graph_data.db")
 cursor = conn.cursor()
@@ -62,8 +63,6 @@ conn.close()
 search_folder = ""
 move_folder = ""
 file_type = ""
-
-engine = pyttsx3.init()
 
 '''
 _torch_load = torch.load
@@ -123,7 +122,7 @@ def get_news(query, speak):
         print(article_text)
         return article_text
     except Exception as e:
-        print("Error:", e)
+        print("⚠️ Error:", e)
 
 def summarize(text):
     response = ollama.chat(model="codellama", messages=[{"role": "system", "content": "summarize the contents of this article in a few lines."},{"role": "user","content": text}])
@@ -168,6 +167,11 @@ def ddgs_search(query, max_results=5):
 def wiki(speak, words, threshold=1000):
     try:
         title = words
+        results = wikipedia.search(title);
+        if not results:
+            print("none")
+            return
+        title = results[0]
         summary = wikipedia.summary(title)
         print(summary)
         if len(summary) > threshold:
@@ -177,6 +181,8 @@ def wiki(speak, words, threshold=1000):
             say(summary, speak)
         else:
             say(summary, speak)
+    except wikipedia.DisambiguationError as e:
+        say(f"Multiple matches found. Try: {e.options[0]}", speak)
     except Exception as e:
         print(f"No articles found({e})\n")
         say("No articles found", speak)
@@ -213,7 +219,7 @@ def graph(*args):
     os.startfile("cpu_graph.png")
     print("Saved graph as cpu_graph.png")
 
-def move_files(words):
+def move_files(speak, words):
     try:
         search_folder = words[1]  # 
         move_folder = words[2]    
@@ -228,6 +234,7 @@ def move_files(words):
                 print(f"Moved {file} to {move_folder}.\n")
                 files.append(file)
                 print(f"Moved {len(files)} files from {search_folder} to {move_folder}")
+                say(f"move {len(files)}", speak)
     except Exception as e:
         print(e)
 '''
@@ -260,16 +267,32 @@ def play_audio(file):
     while pygame.mixer.music.get_busy(): sleep(0.1)
     pygame.mixer.quit()
 
-def say(text, shouldSpeak=True):
-    print("preparing")
-    if shouldSpeak:
-        print("speaking now")
-        engine.setProperty('rate', 150)
-        engine.setProperty('volume', 1.0)
-        voices = engine.getProperty('voices')
-        engine.setProperty('voice', voices[1].id)
-        engine.say(text)
-        engine.runAndWait()
+async def say_async(text):
+    communicate = edge_tts.Communicate(
+        text,
+        voice="en-GB-RyanNeural",
+        rate="+30%"
+    )
+    await communicate.save("speech.mp3")
+
+def say(text, shouldSpeak):
+    try:
+        asyncio.run(say_async(text))
+        play_audio("speech.mp3")
+    except Exception as e:
+        print(e)
+        import pyttsx3
+        engine = pyttsx3.init()
+        print("preparing")
+        if shouldSpeak:
+            print("speaking now")
+            engine.setProperty('rate', 250)
+            engine.setProperty('volume', 1.0)
+            voices = engine.getProperty('voices')
+            engine.setProperty('voice', voices[0].id)
+            engine.say(text)
+            engine.runAndWait()
+            engine.runAndWait()
 def stop_speech():
     engine.stop()
     
@@ -277,7 +300,7 @@ def format_context(results):
     context = ""
     for i, r in enumerate(results):
         title = r.get('title', '')
-        snippet = r.get('body', '')  # DDGS uses 'body', not 'snippet'
+        snippet = r.get('body', '')
         link = r.get('link', '')
         context += f"{i}. {title}\n{snippet}\n{link}\n\n"
     return context
@@ -311,10 +334,10 @@ def get_output(text):
             
 
 
-        closest_matches = difflib.get_close_matches(command, built_in_commands, n=1, cutoff=0.6) # tolerate typos
-        if closest_matches:
-            print(f"Typo... ({command})\n closest match: {closest_matches[0]}")
-            command = closest_matches[0] # get closest match
+        #closest_matches = difflib.get_close_matches(command, built_in_commands, n=1, cutoff=0.6) # tolerate typos
+        #if closest_matches:
+        #    print(f"Typo... ({command})\n closest match: {closest_matches[0]}")
+        #    command = closest_matches[0] # get closest match
 
         if command in built_in_commands:
             if command == "cnn":
@@ -374,21 +397,21 @@ def get_output(text):
                 conn.close()
                 print("Deleted all data from the database.")
             elif command == "move-files":
-                move_files(words)
+                move_files(speak, words)
             elif command == "system-stats":
                 stats(speak, words)
-            else:
-                say("thinking", speak)
-                local_messages = messages.copy()
-                local_messages.append({"role":"user","content":user_input})
-                response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
-                assistant_reply = response['message']['content']
-                print("Assistant:", assistant_reply)
-                messages.append({"role":"assistant","content":assistant_reply})
-                if speak: say(assistant_reply, speak)
+        else:
+            say("thinking", speak)
+            local_messages = messages.copy()
+            local_messages.append({"role":"user","content":user_input})
+            response = ollama.chat(model="codellama", messages=local_messages, options={"temperature": 0.1})
+            assistant_reply = response['message']['content']
+            print("Assistant:", assistant_reply)
+            messages.append({"role":"assistant","content":assistant_reply})
+            if speak: say(assistant_reply, speak)
 
     except Exception as e:
-        print(" Error:", e)
+        print("⚠️ Error:", e)
 
 def gui():
     import sys
