@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import time
 import shlex
@@ -123,8 +123,8 @@ def wiki(speak, words, threshold=1500):
         #summary = wikipedia.summary(" ".join(words[1:]), auto_suggest=False)
         summary = wikipedia.summary(title, auto_suggest=False)
         print(summary)
+        print("length: " + str(len(summary)))
         if len(summary) > threshold:
-            print("length: " + str(len(summary)))
             summary = summarize(summary) # shorten the summary if it is too long
             print(summary)
             threading.Thread(target=message_box, args=(summary,)).start()
@@ -182,7 +182,11 @@ def get_news(speak, words):
         say("Found article,", speak)
         driver.quit()
         print(article_text)
+        
+
         summary = summarize(article_text)
+        #summary = article_text.split(".")
+        summary = " ".join(summary[:5])
         print(summary)
         threading.Thread(target=message_box, args=(summary,)).start()
         say(summary, speak)
@@ -232,6 +236,7 @@ def gui(get_output):
     def start_voice(): threading.Thread(target=voice).start()
     button.clicked.connect(on_submit)
     speak.clicked.connect(start_voice)
+    entry.returnPressed.connect(on_submit)
     window.setLayout(layout)
     window.adjustSize()
     screen = app.primaryScreen().availableGeometry()
